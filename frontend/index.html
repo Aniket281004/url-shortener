@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linklet — URL shortener</title>
+  <style>
+    :root { color-scheme: light; --ink:#17221d; --muted:#68756e; --line:#e3e9e4; --green:#176b4b; --pale:#edf5ef; }
+    * { box-sizing:border-box }
+    body { margin:0; min-height:100vh; background:#f7f8f5; color:var(--ink); font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif }
+    header { height:72px; display:flex; align-items:center; justify-content:space-between; max-width:1080px; padding:0 26px; margin:auto }
+    .brand { font-size:20px; font-weight:750; letter-spacing:-.7px }
+    .brand span { color:var(--green) }
+    .secure { color:var(--muted); font-size:13px }
+    main { max-width:820px; margin:56px auto 80px; padding:0 22px }
+    .eyebrow { color:var(--green); text-transform:uppercase; letter-spacing:1.5px; font-size:11px; font-weight:750 }
+    h1 { font-size:clamp(34px,6vw,52px); line-height:1.08; letter-spacing:-2px; margin:12px 0 }
+    .intro { color:var(--muted); margin:0 0 32px; font-size:16px }
+    .card { background:white; border:1px solid var(--line); border-radius:16px; box-shadow:0 12px 35px #17221d0a; padding:26px; margin-bottom:18px }
+    .tabs { display:flex; gap:8px; border-bottom:1px solid var(--line); margin:-4px 0 20px }
+    button { font:inherit; cursor:pointer }
+    .tab { background:none; border:0; color:var(--muted); padding:9px 12px 12px; border-bottom:2px solid transparent }
+    .tab.active { color:var(--green); border-color:var(--green); font-weight:650 }
+    .field { display:block; margin:0 0 15px; font-weight:620; font-size:13px }
+    input { width:100%; border:1px solid #d7dfd9; border-radius:9px; padding:12px 13px; margin-top:6px; font:inherit; outline:none; background:white }
+    input:focus { border-color:var(--green); box-shadow:0 0 0 3px #176b4b18 }
+    .row { display:flex; gap:10px; align-items:end }
+    .row .field { flex:1; margin:0 }
+    .primary,.secondary { border:0; border-radius:9px; padding:12px 17px; font-weight:680; transition:transform .15s,background .15s }
+    .primary { background:var(--green); color:white }
+    .primary:hover { background:#10583d; transform:translateY(-1px) }
+    .secondary { background:var(--pale); color:var(--green); padding:8px 12px }
+    .secondary:hover { background:#deeee2 }
+    .hidden { display:none!important }
+    .message { min-height:22px; margin:13px 0 0; color:var(--muted); font-size:13px }
+    .message.error { color:#b13939 }
+    .section-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px }
+    h2 { font-size:17px; margin:0; letter-spacing:-.3px }
+    .link-list { border-top:1px solid var(--line) }
+    .link { display:flex; gap:18px; align-items:center; justify-content:space-between; padding:14px 0; border-bottom:1px solid var(--line) }
+    .link-info { min-width:0 }
+    .short { display:block; color:var(--green); font-weight:680; text-decoration:none; overflow-wrap:anywhere }
+    .original { display:block; color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:540px }
+    .clicks { color:var(--muted); font-size:12px; white-space:nowrap }
+    @media(max-width:560px) { header{padding:0 20px} main{margin-top:32px}.card{padding:20px}.row{align-items:stretch;flex-direction:column}.row .primary{width:100%}.link{align-items:flex-start;flex-direction:column;gap:8px}.original{max-width:75vw} }
+  </style>
+</head>
+<body>
+  <header><div class="brand">link<span>let</span></div><div class="secure">Simple links. Yours to manage.</div></header>
+  <main>
+    <div class="eyebrow">Your links, made shorter</div>
+    <h1>Share a little less URL.</h1>
+    <p class="intro">Sign in to make tidy links and keep track of their clicks.</p>
+
+    <section class="card" id="auth-card">
+      <div class="tabs"><button class="tab active" id="login-tab" type="button">Log in</button><button class="tab" id="register-tab" type="button">Create account</button></div>
+      <form id="auth-form">
+        <label class="field hidden" id="name-wrap">Your name<input id="name" autocomplete="name" placeholder="Aniket"></label>
+        <label class="field">Email address<input id="email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
+        <label class="field">Password<input id="password" type="password" autocomplete="current-password" required minlength="6" placeholder="At least 6 characters"></label>
+        <button class="primary" id="auth-submit" type="submit">Log in</button>
+        <p class="message" id="auth-message" role="status"></p>
+      </form>
+    </section>
+
+    <section class="hidden" id="dashboard">
+      <div class="card">
+        <div class="section-head"><h2>Shorten a link</h2><button class="secondary" id="logout" type="button">Log out</button></div>
+        <form id="shorten-form"><div class="row"><label class="field">Destination URL<input id="url" type="url" required placeholder="https://example.com/a/really/long/link"></label><button class="primary" type="submit">Make it short</button></div></form>
+        <p class="message" id="shorten-message" role="status"></p>
+      </div>
+      <div class="card">
+        <div class="section-head"><h2>Your links</h2><button class="secondary" id="refresh" type="button">Refresh</button></div>
+        <div class="link-list" id="link-list"></div>
+        <p class="message" id="list-message" role="status"></p>
+      </div>
+    </section>
+  </main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let mode = "login";
+  let token = localStorage.getItem("linklet_token");
+
+  function showDashboard() {
+    $("auth-card").classList.toggle("hidden", Boolean(token));
+    $("dashboard").classList.toggle("hidden", !token);
+    if (token) loadLinks();
+  }
+  function setMessage(id, text, error = false) {
+    const el = $(id); el.textContent = text; el.classList.toggle("error", error);
+  }
+  async function api(path, options = {}) {
+    const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const response = await fetch(path, { ...options, headers });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.detail || `Request failed (${response.status})`);
+    return body;
+  }
+
+  function setMode(next) {
+    mode = next;
+    $("login-tab").classList.toggle("active", mode === "login");
+    $("register-tab").classList.toggle("active", mode === "register");
+    $("name-wrap").classList.toggle("hidden", mode !== "register");
+    $("name").required = mode === "register";
+    $("auth-submit").textContent = mode === "login" ? "Log in" : "Create account";
+    $("password").autocomplete = mode === "login" ? "current-password" : "new-password";
+    setMessage("auth-message", "");
+  }
+  $("login-tab").addEventListener("click", () => setMode("login"));
+  $("register-tab").addEventListener("click", () => setMode("register"));
+  $("auth-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = { email: $("email").value, password: $("password").value };
+    if (mode === "register") data.name = $("name").value;
+    try {
+      if (mode === "register") {
+        await api("/auth/register", { method: "POST", body: JSON.stringify(data) });
+        setMessage("auth-message", "Account created. Logging you in…");
+      }
+      const result = await api("/auth/login", { method: "POST", body: JSON.stringify({ email: data.email, password: data.password }) });
+      token = result.access_token;
+      localStorage.setItem("linklet_token", token);
+      showDashboard();
+    } catch (error) { setMessage("auth-message", error.message, true); }
+  });
+  $("shorten-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setMessage("shorten-message", "Creating your link…");
+    try {
+      const result = await api("/shorten", { method: "POST", body: JSON.stringify({ url: $("url").value }) });
+      setMessage("shorten-message", `Created ${result.short_url}`);
+      $("url").value = "";
+      await loadLinks();
+    } catch (error) { setMessage("shorten-message", error.message, true); }
+  });
+  async function loadLinks() {
+    try {
+      const links = await api("/my-urls");
+      $("link-list").replaceChildren();
+      if (!links.length) { setMessage("list-message", "Your links will show up here."); return; }
+      setMessage("list-message", "");
+      for (const item of [...links].reverse()) {
+        const row = document.createElement("div"); row.className = "link";
+        const info = document.createElement("div"); info.className = "link-info";
+        const short = document.createElement("a"); short.className = "short"; short.href = `/${encodeURIComponent(item.short_code)}`; short.textContent = new URL(short.href, location.origin).href;
+        const original = document.createElement("span"); original.className = "original"; original.textContent = item.original_url;
+        info.append(short, original);
+        const stats = document.createElement("span"); stats.className = "clicks"; stats.textContent = `${item.clicks || 0} clicks`;
+        const copy = document.createElement("button"); copy.className = "secondary"; copy.type = "button"; copy.textContent = "Copy";
+        copy.addEventListener("click", async () => { await navigator.clipboard.writeText(short.href); copy.textContent = "Copied"; setTimeout(() => copy.textContent = "Copy", 1200); });
+        row.append(info, stats, copy); $("link-list").append(row);
+      }
+    } catch (error) {
+      if (error.message.toLowerCase().includes("credential") || error.message.toLowerCase().includes("token")) {
+        token = null; localStorage.removeItem("linklet_token"); showDashboard();
+      }
+      setMessage("list-message", error.message, true);
+    }
+  }
+  $("refresh").addEventListener("click", loadLinks);
+  $("logout").addEventListener("click", () => { token = null; localStorage.removeItem("linklet_token"); showDashboard(); });
+  showDashboard();
+</script>
+</body>
+</html>
