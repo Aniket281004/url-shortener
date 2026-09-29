@@ -1,40 +1,27 @@
-import sqlite3
-from typing import Optional
-from app.database import get_db_connection
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from app import models
 from app.utils import generate_short_code
 
-def create_short_url(original_url:str)->str:
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def create_short_url(db:Session,original_url:str)->models.URLItem:
     short_code = generate_short_code()
-
+    db_item = models.URLItem(original_url = original_url,short_code=short_code)
     try:
-        cursor.execute(
-            "Insert into urls (original_url,short_code) values(?,?)",
-            (original_url,short_code)
-        )
-        conn.commit()
-    except sqlite3.IntegertyError:
+        db.add(db_item)
+        db.commit()
+        db.refresh(db_item)
+    except IntegrityError:
+        db.rollback()
         short_code = generate_short_code()
-        cursor.execute(
-                    "Insert into urls (original_url,short_code) values(?,?)",
-                    (original_url,short_code)
-                )
-        conn.commit()
-    finally:conn.close()
-    return short_code
+        db_item = models.URLItem(original_url = original_url,short_code=short_code)
+        db.add(db_item)
+        db.commit()
+        db.refresh(db_item)
+    return db_item
 
-def get_and_increment_url(short_code:str) -> Optional[str]:
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("Select original_url,clicks from urls where short_code = ?",(short_code,))
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
-        return None
-    original_url = row["original_url"]
-    new_clicks = row["clicks"]+1
-    cursor.execute("Update urls set clicks = ? where short_code = ?",(new_clicks,short_code))
-    conn.commit()
-    conn.close()
-    return original_url
+def get_and_increment_url(db:Session,short_code:str) -> models.URLItem |None:
+    db_item = db.query(models.URLItem).filter(models.URLItem.short_code == short_code).first()
+    if db_item:
+        db.commit()
+        db.refresh(db_item)
+    return db_item
