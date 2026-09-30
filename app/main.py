@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends, Request, Response
 from fastapi.responses import RedirectResponse, FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
@@ -16,6 +17,13 @@ async def lifespan(_: FastAPI):
     yield
 
 app = FastAPI(title="Multi-Tenant URL Shortener", version="3.0.0", lifespan=lifespan)
+
+def require_same_origin(request: Request):
+    origin = request.headers.get("origin")
+    parsed = urlsplit(origin or "")
+    if (not parsed.scheme or parsed.scheme != request.url.scheme
+            or parsed.netloc.lower() != request.headers.get("host", "").lower()):
+        raise HTTPException(status_code=403, detail="Invalid request origin")
 
 
 @app.get("/", include_in_schema=False)
@@ -32,7 +40,8 @@ class TenantLogin(BaseModel):
     password: str
 
 @app.post("/auth/register", status_code=201)
-def register_tenant(data: TenantRegister, db: Session = Depends(get_db)):
+def register_tenant(data: TenantRegister, request: Request, db: Session = Depends(get_db)):
+    require_same_origin(request)
     existing = db.query(models.Tenant).filter(models.Tenant.email == data.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -45,13 +54,28 @@ def register_tenant(data: TenantRegister, db: Session = Depends(get_db)):
     return {"message": "Tenant registered successfully", "tenant_id": tenant.id}
 
 @app.post("/auth/login")
-def login_tenant(data: TenantLogin, db: Session = Depends(get_db)):
+def login_tenant(data: TenantLogin, request: Request, response: Response, db: Session = Depends(get_db)):
+    require_same_origin(request)
     tenant = db.query(models.Tenant).filter(models.Tenant.email == data.email).first()
     if not tenant or not auth.verify_password(data.password, tenant.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     access_token = auth.create_access_token(data={"tenant_id": tenant.id, "email": tenant.email})
-    return {"access_token": access_token, "token_type": "bearer"}
+    response.set_cookie(
+        "linklet_token", access_token, httponly=True, secure=auth.COOKIE_SECURE,
+        samesite="lax", max_age=auth.ACCESS_TOKEN_EXPIRE_MINUTES * 60, path="/"
+    )
+    return {"message": "Logged in"}
+
+@app.get("/auth/status")
+def auth_status(current_tenant: models.Tenant = Depends(auth.get_current_tenant)):
+    return {"authenticated": True}
+
+@app.post("/auth/logout")
+def logout(request: Request, response: Response):
+    require_same_origin(request)
+    response.delete_cookie("linklet_token", path="/", httponly=True, secure=auth.COOKIE_SECURE, samesite="lax")
+    return {"message": "Logged out"}
 
 @app.post("/shorten", status_code=201)
 def create_short_url(
@@ -60,6 +84,7 @@ def create_short_url(
     current_tenant: models.Tenant = Depends(auth.get_current_tenant),
     db: Session = Depends(get_db)
 ):
+    require_same_origin(request)
     db_item = crud.create_tenant_short_url(db, current_tenant.id, str(item.url))
     base_url = str(request.base_url)
     return {

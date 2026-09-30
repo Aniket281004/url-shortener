@@ -10,7 +10,7 @@ Interactive API documentation is available at [/docs](https://url-shortener-50lo
 
 ## Features
 
-- Account registration and login with bearer-token authentication
+- Account registration and login with HttpOnly cookie authentication
 - Short links scoped to the signed-in account
 - Public short-link redirects
 - Click counts for shortened URLs
@@ -34,6 +34,8 @@ uvicorn app.main:app --reload
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000/) for the frontend or [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) for the API docs.
 
+Set `JWT_SECRET_KEY` to a long random value before starting the app. For local HTTP development only, set `COOKIE_SECURE=false`; deployed sites must use HTTPS and leave `COOKIE_SECURE=true`.
+
 ## Deploy on Render with Neon
 
 Create a PostgreSQL database in Neon and set these environment variables for the Render web service:
@@ -42,6 +44,7 @@ Create a PostgreSQL database in Neon and set these environment variables for the
 | --- | --- |
 | `DATABASE_URL` | Neon PostgreSQL connection string, including `sslmode=require` |
 | `JWT_SECRET_KEY` | A long, randomly generated secret |
+| `COOKIE_SECURE` | `true` (the default); keep enabled for HTTPS deployments |
 
 Use these Render commands:
 
@@ -72,13 +75,12 @@ Content-Type: application/json
 {"email":"aniket@example.com","password":"your-password"}
 ```
 
-The response contains an `access_token`. Send it as `Authorization: Bearer <token>` when creating and listing URLs.
+The response sets an HttpOnly `linklet_token` cookie. Browsers send it automatically; JavaScript cannot read it. Requests that change state must include the same-origin `Origin` header.
 
 ### Create a short URL
 
 ```http
 POST /shorten
-Authorization: Bearer <token>
 Content-Type: application/json
 
 {"url":"https://example.com/a/long/path"}
@@ -88,7 +90,6 @@ Content-Type: application/json
 
 ```http
 GET /my-urls
-Authorization: Bearer <token>
 ```
 
 Open the returned `short_url` to redirect to its destination. Each redirect increments its click count.

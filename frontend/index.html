@@ -78,20 +78,19 @@
   </main>
 <script>
   const $ = (id) => document.getElementById(id);
+  localStorage.removeItem("linklet_token");
   let mode = "login";
-  let token = localStorage.getItem("linklet_token");
+  let authenticated = false;
 
   function showDashboard() {
-    $("auth-card").classList.toggle("hidden", Boolean(token));
-    $("dashboard").classList.toggle("hidden", !token);
-    if (token) loadLinks();
+    $("auth-card").classList.toggle("hidden", authenticated);
+    $("dashboard").classList.toggle("hidden", !authenticated);
   }
   function setMessage(id, text, error = false) {
     const el = $(id); el.textContent = text; el.classList.toggle("error", error);
   }
   async function api(path, options = {}) {
     const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-    if (token) headers.Authorization = `Bearer ${token}`;
     const response = await fetch(path, { ...options, headers });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.detail || `Request failed (${response.status})`);
@@ -119,10 +118,10 @@
         await api("/auth/register", { method: "POST", body: JSON.stringify(data) });
         setMessage("auth-message", "Account created. Logging you in…");
       }
-      const result = await api("/auth/login", { method: "POST", body: JSON.stringify({ email: data.email, password: data.password }) });
-      token = result.access_token;
-      localStorage.setItem("linklet_token", token);
+      await api("/auth/login", { method: "POST", body: JSON.stringify({ email: data.email, password: data.password }) });
+      authenticated = true;
       showDashboard();
+      loadLinks();
     } catch (error) { setMessage("auth-message", error.message, true); }
   });
   $("shorten-form").addEventListener("submit", async (event) => {
@@ -154,14 +153,23 @@
       }
     } catch (error) {
       if (error.message.toLowerCase().includes("credential") || error.message.toLowerCase().includes("token")) {
-        token = null; localStorage.removeItem("linklet_token"); showDashboard();
+        authenticated = false; showDashboard();
       }
       setMessage("list-message", error.message, true);
     }
   }
   $("refresh").addEventListener("click", loadLinks);
-  $("logout").addEventListener("click", () => { token = null; localStorage.removeItem("linklet_token"); showDashboard(); });
-  showDashboard();
+  $("logout").addEventListener("click", async () => {
+    try { await api("/auth/logout", { method: "POST" }); }
+    finally { authenticated = false; showDashboard(); }
+  });
+  async function initialize() {
+    try { await api("/auth/status"); authenticated = true; }
+    catch { authenticated = false; }
+    showDashboard();
+    if (authenticated) loadLinks();
+  }
+  initialize();
 </script>
 </body>
 </html>
