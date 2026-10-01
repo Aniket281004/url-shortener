@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Depends, Request, Response
 from fastapi.responses import RedirectResponse, FileResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, EmailStr
 
 from app.database import engine, Base, get_db
@@ -48,9 +49,13 @@ def register_tenant(data: TenantRegister, request: Request, db: Session = Depend
     
     hashed_pw = auth.hash_password(data.password)
     tenant = models.Tenant(name=data.name, email=data.email, hashed_password=hashed_pw)
-    db.add(tenant)
-    db.commit()
-    db.refresh(tenant)
+    try:
+        db.add(tenant)
+        db.commit()
+        db.refresh(tenant)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Email already registered")
     return {"message": "Tenant registered successfully", "tenant_id": tenant.id}
 
 @app.post("/auth/login")
